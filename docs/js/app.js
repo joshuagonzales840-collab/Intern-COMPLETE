@@ -719,6 +719,37 @@
 		});
 	}
 
+	/* ---------------- Payment email notification ---------------- */
+
+	// EmailJS Service/Template IDs - create these in your EmailJS dashboard (emailjs.com, free tier).
+	var EMAILJS_SERVICE_ID = 'YOUR_EMAILJS_SERVICE_ID';
+	var EMAILJS_TEMPLATE_ID = 'YOUR_EMAILJS_TEMPLATE_ID';
+	// The Gmail address that should receive the payment notification.
+	var NOTIFY_EMAIL = 'your-gmail-address@gmail.com';
+
+	function sendPaymentEmailNotification(order) {
+		if (typeof emailjs === 'undefined') {
+			console.warn('EmailJS SDK not loaded; skipping email notification.');
+			return;
+		}
+		var params = {
+			to_email: NOTIFY_EMAIL,
+			order_number: order.number,
+			order_date: order.date,
+			order_items: order.items,
+			order_total: money(order.total),
+			customer_name: ((order.firstName || '') + ' ' + (order.lastName || '')).trim(),
+			customer_email: order.email || '',
+			customer_address: [order.address, order.city, order.country, order.zip].filter(Boolean).join(', '),
+			customer_phone: order.tel || '',
+			payment_method: 'GCash'
+		};
+		emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params).then(
+			function () { console.log('Payment notification email sent.'); },
+			function (err) { console.error('Failed to send payment notification email:', err); }
+		);
+	}
+
 	/* ================= PAGE: CHECKOUT ================= */
 
 	function initCheckoutPage() {
@@ -756,6 +787,10 @@
 		function handleSuccessfulGcashPayment(order) {
 			writeStore(ORDER_KEY, order);
 			clearCart();
+
+			alert('SCAN SUCCESSFULLY');
+			sendPaymentEmailNotification(order);
+
 			var $section = $('#checkout-section .container');
 			$section.html(
 				'<div class="row"><div class="col-md-8 col-md-offset-2 text-center">' +
@@ -773,21 +808,14 @@
 			var pollCount = 0;
 			var maxPolls = 80;
 			var $section = $('#checkout-section .container');
-			$section.html(
-				'<div class="row"><div class="col-md-8 col-md-offset-2 text-center">' +
-				'<div class="section-title"><h3 class="title">Waiting for GCash payment</h3></div>' +
-				'<p>Please complete the payment in your GCash app. We will confirm it automatically.</p>' +
-				'<div class="spinner" style="margin:20px auto; border:4px solid #f3f3f3; border-top:4px solid #D10024; border-radius:50%; width:36px; height:36px; animation:spin 1s linear infinite;"></div>' +
-				'<p id="gcash-payment-status" style="margin-top:14px;">Checking payment status...</p>' +
-				'</div></div>'
-			);
+			// Note: we deliberately do NOT overwrite $section here - the QR code
+			// and order/payment details built above stay on screen while we poll.
 
 			var timer = setInterval(async function () {
 				pollCount += 1;
 				try {
 					var statusResponse = await window.PaymongoGcash.getStatus(paymentIntentId);
 					var paymentStatus = String(statusResponse && (statusResponse.status || statusResponse.data && statusResponse.data.attributes && statusResponse.data.attributes.status) || '').toLowerCase();
-					$('#gcash-payment-status').text('Checking payment status...');
 					if (paymentStatus === 'paid' || paymentStatus === 'succeeded' || paymentStatus === 'successful' || paymentStatus === 'completed') {
 						clearInterval(timer);
 						$('#gcash-payment-status').text('Scan successful! Redirecting to home...');
@@ -806,7 +834,6 @@
 						);
 					}
 				} catch (error) {
-					$('#gcash-payment-status').text('Payment server is checking your payment. Please wait...');
 					if (pollCount >= maxPolls) {
 						clearInterval(timer);
 						$section.html(
@@ -932,6 +959,11 @@
 					var firstName = $('.billing-details input[name="first-name"]').val() || '';
 					var lastName = $('.billing-details input[name="last-name"]').val() || '';
 					var email = $('.billing-details input[name="email"]').val() || '';
+					var billingAddress = $('.billing-details input[name="address"]').val() || '';
+					var billingCity = $('.billing-details input[name="city"]').val() || '';
+					var billingCountry = $('.billing-details input[name="country"]').val() || '';
+					var billingZip = $('.billing-details input[name="zip-code"]').val() || '';
+					var billingTel = $('.billing-details input[name="tel"]').val() || '';
 					var checkout = await window.PaymongoGcash.startCheckout({
 						firstName: firstName.trim(),
 						lastName: lastName.trim(),
@@ -941,21 +973,37 @@
 					var qrImageUrl = checkout.qrImageUrl || (checkout.data && checkout.data.attributes && checkout.data.attributes.next_action && checkout.data.attributes.next_action.code && checkout.data.attributes.next_action.code.image_url) || '';
 					var paymentIntentId = checkout.paymentIntentId || (checkout.data && checkout.data.id) || '';
 					if (qrImageUrl) {
+						var order = {
+							number: 'EL-' + Math.floor(100000 + Math.random() * 900000),
+							date: formatDate(new Date()),
+							items: cartCount(),
+							total: cartSubtotal(),
+							firstName: firstName.trim(),
+							lastName: lastName.trim(),
+							email: email.trim(),
+							address: billingAddress.trim(),
+							city: billingCity.trim(),
+							country: billingCountry.trim(),
+							zip: billingZip.trim(),
+							tel: billingTel.trim()
+						};
 						$('#checkout-section .container').html(
 							'<div class="row"><div class="col-md-8 col-md-offset-2 text-center">' +
 							'<div class="section-title"><h3 class="title">Scan to pay with GCash</h3></div>' +
 							'<p>Open GCash and scan this QR code to complete your payment.</p>' +
 							'<img id="paymongo-qr" alt="PayMongo QR payment code" style="max-width:420px;width:100%;padding:16px;background:#fff;border:1px solid #e4e7ed;" />' +
-							'<p style="margin-top:20px;"><a href="checkout.html" class="primary-btn cta-btn">Return to Checkout</a></p>' +
+							'<div class="order-summary" style="text-align:left;margin-top:20px;">' +
+								'<div class="order-col"><div><strong>Order Number</strong></div><div>' + order.number + '</div></div>' +
+								'<div class="order-col"><div><strong>Name</strong></div><div>' + escAttr(order.firstName + ' ' + order.lastName) + '</div></div>' +
+								'<div class="order-col"><div><strong>Email</strong></div><div>' + escAttr(order.email) + '</div></div>' +
+								'<div class="order-col"><div><strong>Items</strong></div><div>' + order.items + '</div></div>' +
+								'<div class="order-col"><div><strong>TOTAL</strong></div><div><strong>' + money(order.total) + '</strong></div></div>' +
+							'</div>' +
+							'<p id="gcash-payment-status" style="margin-top:16px;color:#8a8fa3;">Waiting for you to complete payment in GCash...</p>' +
+							'<p style="margin-top:10px;"><a href="checkout.html" class="primary-btn cta-btn">Return to Checkout</a></p>' +
 							'</div></div>'
 						);
 						$('#paymongo-qr').attr('src', qrImageUrl);
-						var order = {
-							number: 'EL-' + Math.floor(100000 + Math.random() * 900000),
-							date: formatDate(new Date()),
-							items: cartCount(),
-							total: cartSubtotal()
-						};
 						if (paymentIntentId) {
 							monitorGcashPayment(order, paymentIntentId);
 						}
