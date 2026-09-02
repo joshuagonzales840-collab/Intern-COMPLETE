@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 Thanks for downloading this theme!
 
 ## Deploy PayMongo checkout
@@ -39,3 +40,6 @@ Alternatively, here's our top most trending and selling items:
 * [**Mega Discount**](https://themewagon.com/themes/mega-discount-bundle/) - A bundle of 26 HTML5 templates; best value for your money. 
 
 
+=======
+# Intern-COMPLETE
+>>>>>>> 1fa3d9f571856b0f5ee8168918304a20305ad4e0
